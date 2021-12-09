@@ -272,6 +272,15 @@ def run(args):
 
     if args.snp_reference_metadata:
         d = fill_from_metadata(args, d)
+    else:
+        if "panel_variant_id" not in d:
+            logging.info("Imputing panel_variant_id from GWAS metadata")
+            if not args.genome_build:
+                logging.info("Provide the genome build of your GWAS")
+                return
+            cols = ['chromosome', 'position', 'non_effect_allele','effect_allele']
+            d['panel_variant_id'] = d[cols].apply(lambda row: '_'.join(row.values.astype(str)), axis=1) + "_" + args.genome_build
+
 
     if args.output_order:
         order = args.output_order
@@ -301,6 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--insert_value", help="Create a column with a specific value", nargs=2, action="append")
     parser.add_argument("-output_order", help="Specify output order", nargs='+')
     parser.add_argument("-output", help="Where the output should go")
+    parser.add_argument("-genome_build", help="GWAS genome build. If you lift over provide the new genome build")
     parser.add_argument("--keep_all_original_entries", action="store_true")
     parser.add_argument("-verbosity", help="Log verbosity level. 1 is everything being logged. 10 is only high level messages, above 10 will hardly log anything", default = "10")
     GWASUtilities.add_gwas_arguments_to_parser(parser)
