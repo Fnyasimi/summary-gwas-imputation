@@ -96,7 +96,8 @@ def match(source, reference):
 
 def sort(d):
     chr_re_ = re.compile("chr(\d+)$")
-    chr = [int(x.split("chr")[1]) if chr_re_.search(x) else None for x in d.chromosome]
+    # Nasty nested condotional statements 
+    chr = [x if isinstance(x, int) else (int(x.split("chr")[1]) if chr_re_.search(x) else None) for x in d.chromosome]
     d = d.assign(chr = chr)
     d = d.sort_values(by=["chr", "position"])
     d.drop("chr", axis=1, inplace=True)
