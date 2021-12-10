@@ -111,7 +111,7 @@ def liftover(args, d):
     logging.info("%d variants after liftover", d.shape[0])
     return d
 
-def _get_panel_metadata(path, index):
+def _get_panel_metadata(path, index, extra_cols=None):
     m=[]
     for i, line in Utilities.iterate_file(path):
         if i==0: continue
@@ -122,11 +122,14 @@ def _get_panel_metadata(path, index):
         non_effect = comps[3]
         effect = comps[4]
         frequency = float(comps[5])
+        extra_entries = []
+        for ecol in extra_cols:
+            extra_entries.append(comps[ecol])
         if chr in index and pos in index[chr]:
-            m.append((variant, chr, pos, non_effect, effect, frequency))
+            m.append([variant, chr, pos, non_effect, effect, frequency] + extra_entries)
     return m
 
-def _get_metadata(path, index):
+def _get_metadata(path, index, extra_cols=None):
     m=[]
     for i, line in Utilities.iterate_file(path):
         if i==0: continue
@@ -137,11 +140,14 @@ def _get_metadata(path, index):
         non_effect = comps[3]
         effect = comps[4]
         frequency = float(comps[5]) if comps[5] != "NA" else numpy.nan
+        extra_entries = []
+        for ecol in extra_cols:
+            extra_entries.append(comps[ecol])
         if chr in index and pos in index[chr]:
-            m.append((variant, chr, pos, non_effect, effect, frequency))
+            m.append([variant, chr, pos, non_effect, effect, frequency] + extra_entries)
     return m
 
-def get_panel_variants(args, d, keep_rsids=False):
+def get_panel_variants(args, d, keep_rsids=False, extra_col_dict={}):
     logging.info("Creating index to attach reference ids")
     index = {}
     for t in d.itertuples():
@@ -152,11 +158,11 @@ def get_panel_variants(args, d, keep_rsids=False):
     _snp = args.snp_reference_metadata
     m = None
     if len(_snp) == 1:
-        m = _get_panel_metadata(_snp[0], index)
+        m = _get_panel_metadata(_snp[0], index, extra_cols=extra_col_dict.values())
     elif len(_snp) == 2:
         if _snp[1] == "METADATA":
-            m = _get_metadata(_snp[0], index)
-    m = pandas.DataFrame(m, columns=["panel_variant_id", "chromosome", "position", "non_effect_allele", "effect_allele", "frequency"])
+            m = _get_metadata(_snp[0], index, extra_cols=extra_col_dict.values())
+    m = pandas.DataFrame(m, columns=["panel_variant_id", "chromosome", "position", "non_effect_allele", "effect_allele", "frequency"] + list(extra_col_dict.keys()))
     return m
 
 def filled_frequency(d, m):
@@ -169,6 +175,19 @@ def filled_frequency(d, m):
         if _f is None or numpy.isnan(_f):
             if e.panel_variant_id in t:
                 _f = t[e.panel_variant_id]
+        f.append(_f)
+    return f
+
+def filled_col(d, m, colname):
+    has_col = colname in d
+    
+    t = {x[1]['panel_variant_id']:x[1][colname] for x in m.iterrows()}
+    f = []
+    for e in d.iterrows():
+        _f = e[1][colname] if has_col else None
+        if _f is None or numpy.isnan(_f):
+            if e[1]['panel_variant_id'] in t:
+                _f = t[e[1]['panel_variant_id']]
         f.append(_f)
     return f
 
@@ -218,14 +237,13 @@ def ensure_uniqueness(d):
     d = d.drop(remove)
     return d
 
-def fill_from_metadata(args, d):
-    m = get_panel_variants(args, d)
+def fill_from_metadata(args, d, extra_col_dict={}):
+    m = get_panel_variants(args, d, extra_col_dict=extra_col_dict)
     if "panel_variant_id" in d: d= d.drop(["panel_variant_id"])
 
     logging.info("alligning alleles")
 
     d = Genomics.match(d, m)
-
     if not args.keep_all_original_entries:
         d = d.loc[~d.panel_variant_id.isna()]
         logging.info("%d variants after restricting to reference variants", d.shape[0])
@@ -236,6 +254,9 @@ def fill_from_metadata(args, d):
 
     logging.info("Checking for missing frequency entries")
     d["frequency"] = filled_frequency(d, m)
+    
+    for extra_col in extra_col_dict.keys():
+        d[extra_col] = filled_col(d, m, extra_col)
 
     return d
 
@@ -244,6 +265,13 @@ def clean_up(d):
     if "chromosome" in d.columns.values and "position" in d.columns.values:
         d = Genomics.sort(d)
     return d
+
+def load_extra_col_key_value_pairs(kvlist):
+    out = {}
+    for i in kvlist:
+       i_ = i.split(':')
+       out[i_[0]] = int( i_[1])
+    return out
 
 def run(args):
     if os.path.exists(args.output):
@@ -271,7 +299,7 @@ def run(args):
         d = liftover(args, d)
 
     if args.snp_reference_metadata:
-        d = fill_from_metadata(args, d)
+        d = fill_from_metadata(args, d, extra_col_dict=load_extra_col_key_value_pairs(args.meta_extra_col))
     else:
         if "panel_variant_id" not in d:
             logging.info("Imputing panel_variant_id from GWAS metadata")
@@ -313,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument("-genome_build", help="GWAS genome build. If you lift over provide the new genome build")
     parser.add_argument("--keep_all_original_entries", action="store_true")
     parser.add_argument("-verbosity", help="Log verbosity level. 1 is everything being logged. 10 is only high level messages, above 10 will hardly log anything", default = "10")
+    parser.add_argument('-meta_extra_col', help='Let extra columns in snp_reference_metadata be read. Provide key/value pairs in the format: key1:value1 key2:value2 ...', nargs='+', default=[])
     GWASUtilities.add_gwas_arguments_to_parser(parser)
     args = parser.parse_args()
 
