@@ -285,7 +285,7 @@ def run(args):
             separator=args.separator, handle_empty_columns=args.handle_empty_columns, input_pvalue_fix=args.input_pvalue_fix,
             enforce_numeric_columns=args.enforce_numeric_columns)
     logging.info("loaded %d variants", d.shape[0])
-
+    
     d = pre_process_gwas(args, d)
 
     if args.fill_from_snp_info:
@@ -308,7 +308,9 @@ def run(args):
                 return
             cols = ['chromosome', 'position', 'non_effect_allele','effect_allele']
             d['panel_variant_id'] = d[cols].apply(lambda row: '_'.join(row.values.astype(str)), axis=1) + "_" + args.genome_build
-
+            logging.info("Ensuring variant uniqueness")
+            d = ensure_uniqueness(d)
+            logging.info("%d variants after ensuring uniqueness", d.shape[0])
 
     if args.output_order:
         order = args.output_order
